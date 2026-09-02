@@ -25,6 +25,12 @@ public sealed class CastleGame : Game
         Content.RootDirectory = "Content";
     }
 
+    protected override void OnExiting(object sender, ExitingEventArgs args)
+    {
+        // DesktopGL can deadlock in OpenAL-soft / SDL_Quit during Dispose.
+        Environment.Exit(0);
+    }
+
     protected override void LoadContent()
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
@@ -53,9 +59,16 @@ public sealed class CastleGame : Game
     protected override void Draw(GameTime gameTime)
     {
         GraphicsDevice.Clear(new Color(34, 38, 44));
+        // Negative Y scale (Y-up world) reverses triangle winding; default culling
+        // would discard every sprite and leave only the clear color.
         _spriteBatch.Begin(
-            samplerState: SamplerState.PointClamp,
-            transformMatrix: CameraMatrix());
+            SpriteSortMode.Deferred,
+            BlendState.AlphaBlend,
+            SamplerState.PointClamp,
+            DepthStencilState.None,
+            RasterizerState.CullNone,
+            null,
+            CameraMatrix());
 
         Fill(_world.Floor, new Color(92, 86, 74));
         foreach (var wall in _world.Walls)

@@ -23,7 +23,7 @@ Needs the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 dotnet run --project engines/Champ.MonoGame
 ```
 
-DesktopGL ships an x64 `SDL2.dll`. On Windows ARM64 that library may fail to load (`Failed to load library: SDL2.dll`). Use an x64 machine or an ARM64-compatible SDL2 build if that happens. The project still compiles.
+On Windows ARM64 the project pins `win-arm64` and places ARM64 `SDL2.dll` / OpenAL next to the exe. MonoGame 3.8.4 otherwise copies only x64 natives, which fail to load.
 
 ## Stride
 
