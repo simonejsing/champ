@@ -1,0 +1,7 @@
+{
+  "name": "com.champ.sim",
+  "version": "0.1.0",
+  "displayName": "Champ Sim",
+  "description": "Shared castle simulation used by the MonoGame, Stride, and Unity scaffolds.",
+  "unity": "2022.3"
+}

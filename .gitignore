@@ -1,0 +1,27 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+.DS_Store
+Thumbs.db
+
+# Unity (generated)
+engines/Champ.Unity/Library/
+engines/Champ.Unity/Temp/
+engines/Champ.Unity/Obj/
+engines/Champ.Unity/Logs/
+engines/Champ.Unity/UserSettings/
+engines/Champ.Unity/MemoryCaptures/
+engines/Champ.Unity/*.csproj
+engines/Champ.Unity/*.sln
+engines/Champ.Unity/*.unityproj
+engines/Champ.Unity/*.pidb
+engines/Champ.Unity/*.booproj
+engines/Champ.Unity/*.svd
+engines/Champ.Unity/*.pdb
+engines/Champ.Unity/*.mdb
+engines/Champ.Unity/*.opendb
+engines/Champ.Unity/*.VC.db

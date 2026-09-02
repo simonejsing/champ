@@ -1,0 +1,6 @@
+{
+    "name": "Champ.Sim",
+    "rootNamespace": "Champ.Sim",
+    "autoReferenced": true,
+    "noEngineReferences": true
+}

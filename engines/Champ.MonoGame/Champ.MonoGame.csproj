@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RollForward>Major</RollForward>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <!-- MonoGame 3.8.4's loader looks next to the exe, not in runtimes/. Pin the host RID
+       so the ARM64 SDL2/OpenAL natives land in the output folder instead of win-x64. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' and $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) == 'Arm64'">
+    <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
+    <PackageReference Include="MonoGame.Library.SDL" Version="2.32.10.2" />
+    <PackageReference Include="MonoGame.Library.OpenAL" Version="1.24.3.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Champ.Sim\Champ.Sim.csproj" />
+  </ItemGroup>
+
+  <Target Name="CopyHostNativeLibs" AfterTargets="Build">
+    <PropertyGroup>
+      <_HostRid Condition="$([MSBuild]::IsOSPlatform('Windows')) and $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) == 'Arm64'">win-arm64</_HostRid>
+      <_HostRid Condition="$([MSBuild]::IsOSPlatform('Windows')) and $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) == 'X64'">win-x64</_HostRid>
+    </PropertyGroup>
+    <ItemGroup>
+      <_HostNative Include="$(OutputPath)runtimes\$(_HostRid)\native\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_HostNative)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" Condition="'@(_HostNative)' != ''" />
+    <Copy SourceFiles="$(OutputPath)openal.dll" DestinationFiles="$(OutputPath)soft_oal.dll" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)openal.dll')" />
+  </Target>
+</Project>
