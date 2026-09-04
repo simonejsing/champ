@@ -77,6 +77,24 @@ Needs [Unity 2022.3 LTS](https://unity.com/download) or newer (Hub will upgrade 
 2. Open `Assets/Scenes/Main.unity`.
 3. Press Play. `CastleView` builds the keep at runtime and pulls sim code from the local `com.champ.sim` package.
 
+### Standalone build
+
+`Assets/Editor/BuildScript.cs` builds a Windows player from `Main.unity`, either from the
+Editor menu (**Champ ▸ Build Standalone Windows**, drops the exe at `Build/Windows/Champ.exe`)
+or headless from the CLI:
+
+```powershell
+& "C:\Program Files\Unity 2022.3.62f3\Editor\Unity.exe" -batchmode -nographics -quit `
+    -projectPath engines\Champ.Unity `
+    -executeMethod Champ.Unity.Editor.BuildScript.BuildWindowsCli `
+    -buildOutput Build\Windows\Champ.exe `
+    -logFile -
+```
+
+Either path needs the Windows Build Support module installed alongside the Editor, and an
+activated Unity Editor license — that gate applies to batchmode builds exactly like it does to
+opening the project, so there's no way around it via the CLI.
+
 ## Shared sim
 
 Change castle shape or hero speed in `src/Champ.Sim/CastleWorld.cs`. MonoGame and Stride pick it up on rebuild. Unity uses the same folder as a `file:` package (`engines/Champ.Unity/Packages/manifest.json`).

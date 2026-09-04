@@ -9,6 +9,7 @@
 Thumbs.db
 
 # Unity (generated)
+engines/Champ.Unity/Build/
 engines/Champ.Unity/Library/
 engines/Champ.Unity/Temp/
 engines/Champ.Unity/Obj/

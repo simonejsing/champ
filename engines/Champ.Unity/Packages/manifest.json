@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.champ.sim": "file:../../src/Champ.Sim",
+    "com.champ.sim": "file:../../../src/Champ.Sim",
     "com.unity.2d.sprite": "1.0.0",
     "com.unity.ide.visualstudio": "2.0.22",
     "com.unity.ugui": "1.0.0",
