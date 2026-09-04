@@ -30,13 +30,17 @@ void Start(Scene scene)
     camera.Projection = CameraProjectionMode.Orthographic;
     camera.OrthographicSize = 24f;
 
+    // SetCameraRotation packs (Yaw, Pitch, Roll); a -90 Pitch here points the camera straight
+    // down but leaves its up vector on world -Z. Sim Y (north-positive) maps to Z below, so
+    // every Z placement is negated to keep north pointing up on screen -- otherwise the whole
+    // keep (and WASD/arrow-key movement) reads vertically mirrored.
     var floor = game.Create3DPrimitive(PrimitiveModelType.Cube, new()
     {
         Size = new Vector3(world.Floor.W, 0.12f, world.Floor.H),
         Material = game.CreateMaterial(new Color(92, 86, 74)),
         IncludeCollider = false
     });
-    floor.Transform.Position = new Vector3(world.Floor.CenterX, -0.06f, world.Floor.CenterY);
+    floor.Transform.Position = new Vector3(world.Floor.CenterX, -0.06f, -world.Floor.CenterY);
     floor.Scene = scene;
 
     foreach (var wall in world.Walls)
@@ -48,7 +52,7 @@ void Start(Scene scene)
             Material = game.CreateMaterial(new Color(58, 54, 50)),
             IncludeCollider = false
         });
-        block.Transform.Position = new Vector3(wall.CenterX, height * 0.5f, wall.CenterY);
+        block.Transform.Position = new Vector3(wall.CenterX, height * 0.5f, -wall.CenterY);
         block.Scene = scene;
     }
 
@@ -82,5 +86,5 @@ void PlaceHero()
 {
     if (hero is null)
         return;
-    hero.Transform.Position = new Vector3(world.Hero.X, 0.55f, world.Hero.Y);
+    hero.Transform.Position = new Vector3(world.Hero.X, 0.55f, -world.Hero.Y);
 }
