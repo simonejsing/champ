@@ -35,6 +35,40 @@ dotnet run --project engines/Champ.Stride
 
 This slice uses an orthographic camera looking down at lit cubes so you can feel Stride as a renderer, not a SpriteBatch clone. Gameplay still comes from `Champ.Sim`.
 
+### Windows on ARM64
+
+Stride's shader compiler loads `spirv-cross.dll` unconditionally (even on the Direct3D11
+backend), and `Stride.Dependencies.SpirvCross` only ships that native library for
+`win-x64`/`win-x86` — there is no `win-arm64` build. On an ARM64 Windows machine the app
+otherwise crashes on the first `Draw` with:
+
+```
+System.DllNotFoundException: Could not locate or load native library spirv-cross
+   at Stride.Shaders.Compilers.SpirvTranslator..cctor()
+```
+
+`Champ.Stride.csproj` pins `RuntimeIdentifier=win-arm64` → **`win-x64`** on ARM64 hosts so the
+app runs under Windows' built-in x64 emulation instead, using the natives that actually exist.
+That alone isn't enough, though: Stride's AssetCompiler shells out to a nested `dotnet` on
+`PATH`, and if that resolves to an ARM64-native SDK it refuses to load the win-x64 build
+(`FileLoadException: assembly architecture is not compatible`). So an x64 SDK has to be first
+on `PATH` for the whole build/run:
+
+```powershell
+# one-time: install an x64 SDK side-by-side (no admin rights required)
+Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+.\dotnet-install.ps1 -Channel 10.0 -Architecture x64 -InstallDir C:\dotnet-x64 -NoPath
+
+# each session: put the x64 SDK first, then run as usual
+$env:PATH = "C:\dotnet-x64;$env:PATH"
+$env:DOTNET_ROOT = "C:\dotnet-x64"
+dotnet run --project engines/Champ.Stride
+```
+
+MonoGame doesn't need this dance — its native deps (SDL2 etc.) do ship `win-arm64` builds, so
+`Champ.MonoGame.csproj` just pins the RID and copies them next to the exe (see
+`CopyHostNativeLibs` in that `.csproj`).
+
 ## Unity
 
 Needs [Unity 2022.3 LTS](https://unity.com/download) or newer (Hub will upgrade the project if you open it in Unity 6).

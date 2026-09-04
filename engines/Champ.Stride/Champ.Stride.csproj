@@ -7,6 +7,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RollForward>Major</RollForward>
   </PropertyGroup>
+
+  <!-- Stride's shader compiler pipeline loads spirv-cross.dll unconditionally (even on the
+       Direct3D11 backend). Stride.Dependencies.SpirvCross ships that native library for
+       win-x64/win-x86 only, with no win-arm64 build, so on Windows-on-ARM64 the app crashes
+       at first Draw with DllNotFoundException. Pin win-x64 so the app (and Windows' built-in
+       x64 emulation) uses the natives that actually exist. Build/run this project with an x64
+       .NET SDK on the PATH so the AssetCompiler subprocess matches; see README. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows')) and $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) == 'Arm64'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Stride.CommunityToolkit.Windows" Version="1.0.0-preview.63" />
     <PackageReference Include="Stride.CommunityToolkit.Bepu" Version="1.0.0-preview.63" />
