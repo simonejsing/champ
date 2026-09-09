@@ -1,9 +1,11 @@
+using System;
 using System.Collections.Generic;
 
 namespace Champ.Sim
 {
     /// <summary>
-    /// Top-down keep: Y-up, X-right, origin at the courtyard centre.
+    /// Top-down world: Y-up, X-right, origin at the courtyard centre. The keep sits in
+    /// the middle of a much larger outdoor map -- see <see cref="Bounds"/>.
     /// </summary>
     public sealed class CastleWorld
     {
@@ -11,23 +13,36 @@ namespace Champ.Sim
         public const float Speed = 7.5f;
 
         public Vec2 Hero { get; private set; }
-        public Aabb Floor { get; }
+
+        /// <summary>Full extent of the map. The hero is clamped inside it.</summary>
+        public Aabb Bounds { get; }
+
+        /// <summary>
+        /// Ground patches ordered back-to-front: later entries paint over earlier ones.
+        /// 3D renderers should lift entry i by i * step so overlapping patches do not
+        /// z-fight -- deriving elevation from the index keeps it in step with paint order.
+        /// </summary>
+        public IReadOnlyList<Surface> Surfaces { get; }
+
         public IReadOnlyList<Aabb> Walls { get; }
 
         public CastleWorld()
         {
             Hero = new Vec2(0f, -7.2f);
-            Floor = new Aabb(-16f, -10f, 32f, 20f);
+            Bounds = new Aabb(-60f, -40f, 120f, 80f);
+            Surfaces = BuildSurfaces(Bounds);
             Walls = BuildKeep();
         }
 
         public void Tick(float dt, Vec2 input)
         {
             var delta = input.Normalized() * (Speed * dt);
-            var x = Hero.X + delta.X;
+            // Clamp each candidate to the map before testing it, so running into the world
+            // edge slides along it the same way running into a wall does.
+            var x = Math.Clamp(Hero.X + delta.X, Bounds.Left + HeroHalf, Bounds.Right - HeroHalf);
             if (!Collides(new Vec2(x, Hero.Y)))
                 Hero = new Vec2(x, Hero.Y);
-            var y = Hero.Y + delta.Y;
+            var y = Math.Clamp(Hero.Y + delta.Y, Bounds.Bottom + HeroHalf, Bounds.Top - HeroHalf);
             if (!Collides(new Vec2(Hero.X, y)))
                 Hero = new Vec2(Hero.X, y);
         }
@@ -46,6 +61,18 @@ namespace Champ.Sim
             }
 
             return false;
+        }
+
+        static List<Surface> BuildSurfaces(Aabb bounds)
+        {
+            // Back-to-front. The path is 4 wide to match the south gate opening and runs
+            // from the south map edge up to the keep's outer wall.
+            return new List<Surface>
+            {
+                new(bounds, SurfaceKind.Grass),
+                new(new Aabb(-2f, -40f, 4f, 30f), SurfaceKind.Path),
+                new(new Aabb(-16f, -10f, 32f, 20f), SurfaceKind.Stone),
+            };
         }
 
         static List<Aabb> BuildKeep()

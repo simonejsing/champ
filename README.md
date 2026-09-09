@@ -4,13 +4,13 @@ Scaffolding for a 2D top-down champion walking a castle keep. The same simulatio
 
 **Controls:** WASD or arrow keys. Escape quits the MonoGame and Stride windows.
 
-The hero starts just inside the south gate. Walk the courtyard, side chambers, and the north room.
+The hero starts just inside the south gate. Walk the courtyard, side chambers, and the north room -- or head out the gate and down the path into the meadow around the keep. The camera eases along behind you and stops at the edge of the map.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `src/Champ.Sim` | Movement, AABB walls, generated hero pixels. No graphics types. |
+| `src/Champ.Sim` | Movement, AABB walls, ground surfaces, follow camera, generated hero pixels. No graphics types. |
 | `engines/Champ.MonoGame` | DesktopGL SpriteBatch view |
 | `engines/Champ.Stride` | Code-only Stride view (ortho 3D keep, lighting) |
 | `engines/Champ.Unity` | 2D SpriteRenderer view |
@@ -97,4 +97,8 @@ opening the project, so there's no way around it via the CLI.
 
 ## Shared sim
 
-Change castle shape or hero speed in `src/Champ.Sim/CastleWorld.cs`. MonoGame and Stride pick it up on rebuild. Unity uses the same folder as a `file:` package (`engines/Champ.Unity/Packages/manifest.json`).
+Change castle shape, map size or hero speed in `src/Champ.Sim/CastleWorld.cs`. MonoGame and Stride pick it up on rebuild. Unity uses the same folder as a `file:` package (`engines/Champ.Unity/Packages/manifest.json`).
+
+`CastleWorld.Surfaces` is the ground: a list of `Surface` (grass, path, stone) ordered back-to-front. That order is load-bearing -- MonoGame paints them in sequence, and the 3D renderers lift patch `i` by `i * step` so overlapping ground never z-fights. Adding a surface is a sim-only edit.
+
+`CameraFollow` holds the follow-and-clamp math rather than each renderer rolling its own, so all three pan identically: it eases towards the hero at `Smoothing` per second, then clamps the view inside `CastleWorld.Bounds`. Each renderer passes its own visible extent, since all three fix a 24-unit view height and derive width from the window.

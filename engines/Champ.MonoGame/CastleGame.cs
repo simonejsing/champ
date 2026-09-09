@@ -9,9 +9,10 @@ public sealed class CastleGame : Game
 {
     readonly GraphicsDeviceManager _graphics;
     readonly CastleWorld _world = new();
+    readonly CameraFollow _camera;
     SpriteBatch _spriteBatch = null!;
-    Texture2D _pixel = null!;
     Texture2D _hero = null!;
+    Texture2D[] _surfaces = null!;
 
     public CastleGame()
     {
@@ -20,6 +21,7 @@ public sealed class CastleGame : Game
             PreferredBackBufferWidth = 1280,
             PreferredBackBufferHeight = 720
         };
+        _camera = new CameraFollow(_world.Bounds, _world.Hero);
         IsMouseVisible = true;
         Window.Title = "Champ — MonoGame";
         Content.RootDirectory = "Content";
@@ -34,9 +36,13 @@ public sealed class CastleGame : Game
     protected override void LoadContent()
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
-        _pixel = new Texture2D(GraphicsDevice, 1, 1);
-        _pixel.SetData(new[] { Color.White });
-        _hero = CreateHeroTexture();
+        _hero = CreateTexture(HeroPixels.CreateArgb(), HeroPixels.Width, HeroPixels.Height);
+
+        var kinds = (SurfaceKind[])Enum.GetValues(typeof(SurfaceKind));
+        _surfaces = new Texture2D[kinds.Length];
+        foreach (var kind in kinds)
+            _surfaces[(int)kind] = CreateTexture(
+                SurfacePixels.CreateArgb(kind), SurfacePixels.Size, SurfacePixels.Size);
     }
 
     protected override void Update(GameTime gameTime)
@@ -52,7 +58,9 @@ public sealed class CastleGame : Game
         if (kb.IsKeyDown(Keys.S) || kb.IsKeyDown(Keys.Down)) y -= 1f;
         if (kb.IsKeyDown(Keys.W) || kb.IsKeyDown(Keys.Up)) y += 1f;
 
-        _world.Tick((float)gameTime.ElapsedGameTime.TotalSeconds, new Vec2(x, y));
+        var dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        _world.Tick(dt, new Vec2(x, y));
+        _camera.Update(_world.Hero, GraphicsDevice.Viewport.Width / ViewScale(), ViewHeight, dt);
         base.Update(gameTime);
     }
 
@@ -64,15 +72,18 @@ public sealed class CastleGame : Game
         _spriteBatch.Begin(
             SpriteSortMode.Deferred,
             BlendState.AlphaBlend,
-            SamplerState.PointClamp,
+            SamplerState.PointWrap,
             DepthStencilState.None,
             RasterizerState.CullNone,
             null,
             CameraMatrix());
 
-        Fill(_world.Floor, new Color(92, 86, 74));
+        // Surfaces are ordered back-to-front, so painting them in order is the depth test.
+        foreach (var surface in _world.Surfaces)
+            FillTiled(surface.Box, _surfaces[(int)surface.Kind]);
+        var wallTexture = _surfaces[(int)SurfaceKind.Wall];
         foreach (var wall in _world.Walls)
-            Fill(wall, new Color(58, 54, 50));
+            FillTiled(wall, wallTexture);
 
         var heroSize = CastleWorld.HeroHalf * 2f;
         _spriteBatch.Draw(
@@ -90,33 +101,46 @@ public sealed class CastleGame : Game
         base.Draw(gameTime);
     }
 
+    // Fixed visible height, width follows the window -- Stride and Unity frame the world
+    // the same way, so all three show the same slice of world at any aspect ratio.
+    const float ViewHeight = 24f;
+
+    float ViewScale() => GraphicsDevice.Viewport.Height / ViewHeight;
+
     Matrix CameraMatrix()
     {
         var vp = GraphicsDevice.Viewport;
-        const float worldW = 36f;
-        const float worldH = 24f;
-        var scale = MathF.Min(vp.Width / worldW, vp.Height / worldH);
-        return Matrix.CreateScale(scale, -scale, 1f)
+        var scale = ViewScale();
+        var center = _camera.Center;
+        return Matrix.CreateTranslation(-center.X, -center.Y, 0f)
+               * Matrix.CreateScale(scale, -scale, 1f)
                * Matrix.CreateTranslation(vp.Width * 0.5f, vp.Height * 0.5f, 0f);
     }
 
-    void Fill(Aabb box, Color color)
+    // A source rectangle larger than the texture is what makes PointWrap repeat the tile
+    // across the surface; the scale then maps texels back to world units.
+    void FillTiled(Aabb box, Texture2D texture)
     {
+        const float texelsPerUnit = SurfacePixels.Size / SurfacePixels.WorldSize;
+        var source = new Rectangle(
+            0,
+            0,
+            (int)MathF.Round(box.W * texelsPerUnit),
+            (int)MathF.Round(box.H * texelsPerUnit));
         _spriteBatch.Draw(
-            _pixel,
+            texture,
             new Vector2(box.X, box.Y),
-            null,
-            color,
+            source,
+            Color.White,
             0f,
             Vector2.Zero,
-            new Vector2(box.W, box.H),
+            1f / texelsPerUnit,
             SpriteEffects.None,
             0f);
     }
 
-    Texture2D CreateHeroTexture()
+    Texture2D CreateTexture(uint[] argb, int width, int height)
     {
-        var argb = HeroPixels.CreateArgb();
         var colors = new Color[argb.Length];
         for (var i = 0; i < argb.Length; i++)
         {
@@ -128,15 +152,20 @@ public sealed class CastleGame : Game
             colors[i] = new Color(r, g, b, a);
         }
 
-        var tex = new Texture2D(GraphicsDevice, HeroPixels.Width, HeroPixels.Height);
+        var tex = new Texture2D(GraphicsDevice, width, height);
         tex.SetData(colors);
         return tex;
     }
 
     protected override void UnloadContent()
     {
-        _pixel?.Dispose();
         _hero?.Dispose();
+        if (_surfaces != null)
+        {
+            foreach (var texture in _surfaces)
+                texture?.Dispose();
+        }
+
         _spriteBatch?.Dispose();
         base.UnloadContent();
     }
