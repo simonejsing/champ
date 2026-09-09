@@ -63,8 +63,8 @@ namespace Champ.Sim
                 new(-11f, -3f, t, 9f),
                 new(-11f, 6f, 7f, t),
                 new(-4f, 2f, t, 4f + t),
-                // Inner east chamber
-                new(10f - t, -3f, t, 9f),
+                // Inner east chamber (mirror of west: outer face at x = 11)
+                new(11f - t, -3f, t, 9f),
                 new(4f, 6f, 7f, t),
                 new(4f - t, 2f, t, 4f + t),
                 // Throne dais wall with a centre opening
