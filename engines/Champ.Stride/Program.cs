@@ -40,7 +40,7 @@ void Start(Scene scene)
     // whenever he stepped into a wall's shadow. A LightAmbient is ignored by this compositor,
     // so fill with a dim shadow-less light pointing straight down: it lifts shadowed ground
     // while leaving the key light's shadows visible.
-    var fill = game.AddDirectionalLight(entityName: "Fill", enableShadows: false, intensity: 0.3f);
+    var fill = game.AddDirectionalLight(entityName: "Fill", enableShadows: false, intensity: 0.15f);
     fill.Transform.Rotation = Quaternion.RotationYawPitchRoll(
         0f, MathUtil.DegreesToRadians(-90f), 0f);
 
