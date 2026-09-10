@@ -1,4 +1,4 @@
-using Champ.Sim;
+﻿using Champ.Sim;
 using Stride.CommunityToolkit.Bepu;
 using Stride.CommunityToolkit.Engine;
 using Stride.CommunityToolkit.Rendering.ProceduralModels;
@@ -34,6 +34,15 @@ void Start(Scene scene)
     if (cameraEntity is null)
         cameraEntity = game.SceneSystem.SceneInstance.RootScene.Entities
             .First(e => e.Get<CameraComponent>() != null);
+
+    // SetupBase3D installs one shadow-casting directional light and nothing else, so anything
+    // inside a shadow gets zero light and renders pure black -- the hero vanished entirely
+    // whenever he stepped into a wall's shadow. A LightAmbient is ignored by this compositor,
+    // so fill with a dim shadow-less light pointing straight down: it lifts shadowed ground
+    // while leaving the key light's shadows visible.
+    var fill = game.AddDirectionalLight(entityName: "Fill", enableShadows: false, intensity: 0.3f);
+    fill.Transform.Rotation = Quaternion.RotationYawPitchRoll(
+        0f, MathUtil.DegreesToRadians(-90f), 0f);
 
     var camera = cameraEntity.Get<CameraComponent>();
     camera.Projection = CameraProjectionMode.Orthographic;
