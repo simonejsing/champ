@@ -47,6 +47,49 @@ namespace Champ.Sim
                 Hero = new Vec2(Hero.X, y);
         }
 
+        /// <summary>
+        /// Distance from <paramref name="origin"/> along the unit <paramref name="direction"/> to
+        /// the first wall, or <paramref name="maxDistance"/> if nothing is hit sooner. A ray that
+        /// only grazes a wall face does not count as a hit.
+        /// </summary>
+        public float CastRay(Vec2 origin, Vec2 direction, float maxDistance)
+        {
+            var nearest = maxDistance;
+            for (var i = 0; i < Walls.Count; i++)
+            {
+                var wall = Walls[i];
+                var enter = 0f;
+                var exit = nearest;
+                if (Slab(origin.X, direction.X, wall.Left, wall.Right, ref enter, ref exit) &&
+                    Slab(origin.Y, direction.Y, wall.Bottom, wall.Top, ref enter, ref exit))
+                    nearest = enter;
+            }
+
+            return nearest;
+        }
+
+        // Narrows [enter, exit] to where the ray is between min and max on one axis.
+        static bool Slab(float origin, float direction, float min, float max, ref float enter, ref float exit)
+        {
+            if (MathF.Abs(direction) < 1e-6f)
+                return origin > min && origin < max;
+
+            var t1 = (min - origin) / direction;
+            var t2 = (max - origin) / direction;
+            if (t1 > t2)
+            {
+                var swap = t1;
+                t1 = t2;
+                t2 = swap;
+            }
+
+            if (t1 > enter)
+                enter = t1;
+            if (t2 < exit)
+                exit = t2;
+            return enter < exit;
+        }
+
         bool Collides(Vec2 position)
         {
             var box = new Aabb(
