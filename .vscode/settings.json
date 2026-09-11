@@ -1,5 +1,13 @@
 {
   "terminal.integrated.env.windows": {
     "PATH": "C:\\Program Files\\dotnet;${env:PATH}"
+  },
+
+  // Unity writes a .meta beside every file it imports -- source, .csproj, even an empty
+  // bin/ -- and they have to stay there, so hide them from the tree, search and Quick Open
+  // instead. They are still tracked by git and still show up in diffs. Rider and Visual
+  // Studio hide them by default; this is the same thing.
+  "files.exclude": {
+    "**/*.meta": true
   }
 }
