@@ -1,6 +1,13 @@
 **/bin/
 **/obj/
 artifacts/
+
+# src/Champ.Sim doubles as a Unity package, and Unity writes a .meta beside everything it
+# finds there -- including a stray bin/ or obj/ from a dotnet build. The folders are ignored
+# above; these are the meta files left pointing at them.
+**/bin.meta
+**/obj.meta
+
 .vs/
 .idea/
 *.user
