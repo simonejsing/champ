@@ -19,6 +19,9 @@ namespace Champ.Unity
         const float FloorHeight = 0.15f;
         const float CameraHeight = 30f;
         const float SurfaceStep = 0.02f;
+        const float TorchHeight = 1.6f;
+        // A moonless night: the torches are the only light. Not checked here, as Unity cannot be run.
+        const float TorchIntensity = 1.5f;
 
         CastleWorld _world;
         CameraFollow _follow;
@@ -26,6 +29,7 @@ namespace Champ.Unity
         Transform _hero;
         Material _blockMaterial;
         Texture2D[] _surfaceTextures;
+        Sprite _flameSprite;
 
         void Start()
         {
@@ -33,7 +37,7 @@ namespace Champ.Unity
             _follow = new CameraFollow(_world.Bounds, _world.Hero);
 
             EnsureCamera();
-            EnsureSun();
+            EnsureNight();
 
             // Surfaces are ordered back-to-front; lifting patch i by its index keeps
             // elevation in step with paint order so overlapping ground never z-fights.
@@ -69,7 +73,50 @@ namespace Champ.Unity
                     box.H / SurfacePixels.WorldSize);
             }
 
+            // Built-in forward rendering lights each object with only pixelLightCount per-pixel
+            // lights (4 by default), and the grass is a single object -- without this most torch
+            // pools would never show.
+            QualitySettings.pixelLightCount = Mathf.Max(QualitySettings.pixelLightCount, _world.Torches.Count + 1);
+            for (var i = 0; i < _world.Torches.Count; i++)
+                CreateTorch(_world.Torches[i], "Torch " + i);
+
             _hero = CreateHero().transform;
+        }
+
+        // A torch: a dark post, a bright flame on top, and a warm point light at flame height. The
+        // light casts shadows -- that is what stops it reaching through a wall into the next room
+        // (Stride gets the same result from CastleWorld.TorchLight). The post and flame cast none,
+        // or the torch would throw a dark streak across its own light.
+        void CreateTorch(Vec2 at, string name)
+        {
+            const float post = 0.25f;
+            const float flame = 0.3f;
+            CreateBlock(new Aabb(at.X - post * 0.5f, at.Y - post * 0.5f, post, post),
+                0f, TorchHeight, new Color(0.27f, 0.2f, 0.13f), name + " post", castsShadow: false);
+            // The flame is a flat sprite, like the hero: the default sprite material is unlit, so it
+            // glows at night. A lit cube came out black -- its own light sits level with its top
+            // face -- and the Standard shader's emission variant can be stripped from builds.
+            var flameGo = new GameObject(name + " flame");
+            flameGo.transform.SetParent(transform, false);
+            flameGo.transform.position = new Vector3(at.X, TorchHeight + flame, at.Y);
+            flameGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // lie flat, facing the camera
+            flameGo.transform.localScale = new Vector3(flame, flame, 1f);
+            var flameRenderer = flameGo.AddComponent<SpriteRenderer>();
+            flameRenderer.sprite = FlameSprite();
+            flameRenderer.color = new Color(1f, 0.8f, 0.35f);
+            flameRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            flameRenderer.receiveShadows = false;
+
+            var go = new GameObject(name + " light");
+            go.transform.SetParent(transform, false);
+            // Sim Y maps onto world Z, as for everything else here.
+            go.transform.position = new Vector3(at.X, TorchHeight + 0.3f, at.Y);
+            var light = go.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.range = CastleWorld.TorchRange;
+            light.color = new Color(1f, 0.63f, 0.31f);
+            light.intensity = TorchIntensity;
+            light.shadows = LightShadows.Hard;
         }
 
         void Update()
@@ -107,22 +154,20 @@ namespace Champ.Unity
             // Start on the hero so the follow camera has nothing to catch up on frame one.
             _camera.transform.position = new Vector3(_follow.Center.X, CameraHeight, _follow.Center.Y);
             _camera.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // straight down
-            _camera.backgroundColor = new Color(0.13f, 0.15f, 0.17f);
+            _camera.backgroundColor = Color.black;
             _camera.clearFlags = CameraClearFlags.SolidColor;
             _camera.nearClipPlane = 0.1f;
             _camera.farClipPlane = 60f;
         }
 
-        void EnsureSun()
+        // A moonless night: no sun or moon, and no light from the sky either. The Standard shader
+        // otherwise picks up ambient and reflected light from the scene's default skybox, which
+        // would lift everything off black -- the torches must be the only light.
+        static void EnsureNight()
         {
-            var go = new GameObject("Sun");
-            go.transform.SetParent(transform, false);
-            go.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
-            var light = go.AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.color = new Color(1f, 0.96f, 0.88f);
-            light.intensity = 1.15f;
-            light.shadows = LightShadows.Soft;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = Color.black;
+            RenderSettings.reflectionIntensity = 0f;
         }
 
         Texture2D SurfaceTexture(SurfaceKind kind)
@@ -158,6 +203,18 @@ namespace Champ.Unity
             return go;
         }
 
+        // One white unit square, shared by every flame and tinted per renderer.
+        Sprite FlameSprite()
+        {
+            if (_flameSprite != null)
+                return _flameSprite;
+            var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+            tex.SetPixel(0, 0, Color.white);
+            tex.Apply();
+            _flameSprite = Sprite.Create(tex, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f), 1f);
+            return _flameSprite;
+        }
+
         GameObject CreateHero()
         {
             var go = new GameObject("Hero");
@@ -175,10 +232,10 @@ namespace Champ.Unity
                 new Rect(0f, 0f, HeroPixels.Width, HeroPixels.Height),
                 new Vector2(0.5f, 0.5f),
                 HeroPixels.Width / size);
-            // A flat cutout casts an ugly rectangular blob under directional light; it still
-            // sits correctly inside the walls' shadows, which is the effect that matters here.
+            // The hero sits outside the lighting: the default sprite material is unlit, so no
+            // light or shadow changes his colour, and he casts no shadow of his own.
             renderer.shadowCastingMode = ShadowCastingMode.Off;
-            renderer.receiveShadows = true;
+            renderer.receiveShadows = false;
             return go;
         }
 

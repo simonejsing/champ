@@ -1,0 +1,11 @@
+<Project>
+  <!-- Champ.Sim doubles as a Unity package: engines/Champ.Unity/Packages/manifest.json points at
+       its folder, and Unity compiles every .cs file it finds there and imports every DLL as a
+       plugin. dotnet's bin/ and obj/ inside that folder therefore leaked into the Unity build:
+       a stale GlobalUsings.g.cs (C# 10, beyond Unity's C# 9) failed it outright. Keep dotnet's
+       build output outside the package folder. -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)..\artifacts\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)..\artifacts\bin\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
+</Project>

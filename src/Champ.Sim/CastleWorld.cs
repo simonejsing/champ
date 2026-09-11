@@ -12,6 +12,9 @@ namespace Champ.Sim
         public const float HeroHalf = 0.4f;
         public const float Speed = 7.5f;
 
+        /// <summary>How far a torch's light reaches.</summary>
+        public const float TorchRange = 7f;
+
         public Vec2 Hero { get; private set; }
 
         /// <summary>Full extent of the map. The hero is clamped inside it.</summary>
@@ -26,12 +29,20 @@ namespace Champ.Sim
 
         public IReadOnlyList<Aabb> Walls { get; }
 
+        /// <summary>
+        /// Torch posts: around all four outer walls, flanking the south gate, down both sides of
+        /// the path, and through the rooms inside the keep. Decoration only -- they don't block
+        /// the hero.
+        /// </summary>
+        public IReadOnlyList<Vec2> Torches { get; }
+
         public CastleWorld()
         {
             Hero = new Vec2(0f, -7.2f);
             Bounds = new Aabb(-60f, -40f, 120f, 80f);
             Surfaces = BuildSurfaces(Bounds);
             Walls = BuildKeep();
+            Torches = BuildTorches();
         }
 
         public void Tick(float dt, Vec2 input)
@@ -90,6 +101,56 @@ namespace Champ.Sim
             return enter < exit;
         }
 
+        /// <summary>
+        /// Torchlight arriving at <paramref name="point"/>; 0 where no torch reaches. Each torch
+        /// within <see cref="TorchRange"/> adds a smooth falloff, unless a wall stands between
+        /// them. A point inside a wall counts as lit when the torch can see that wall's nearest
+        /// face, so renderers can light wall tops as well as the ground.
+        /// </summary>
+        public float TorchLight(Vec2 point)
+        {
+            const float rangeSq = TorchRange * TorchRange;
+            var total = 0f;
+            for (var i = 0; i < Torches.Count; i++)
+            {
+                var torch = Torches[i];
+                var dx = point.X - torch.X;
+                var dy = point.Y - torch.Y;
+                var distSq = dx * dx + dy * dy;
+                if (distSq >= rangeSq)
+                    continue;
+
+                var target = point;
+                if (WallAt(point) is { } wall)
+                    target = new Vec2(
+                        Math.Clamp(torch.X, wall.Left, wall.Right),
+                        Math.Clamp(torch.Y, wall.Bottom, wall.Top));
+
+                var tx = target.X - torch.X;
+                var ty = target.Y - torch.Y;
+                var reach = MathF.Sqrt(tx * tx + ty * ty);
+                if (reach > 1e-4f && CastRay(torch, new Vec2(tx / reach, ty / reach), reach) < reach - 1e-3f)
+                    continue;   // a wall is in the way
+
+                var falloff = 1f - distSq / rangeSq;
+                total += falloff * falloff;
+            }
+
+            return total;
+        }
+
+        Aabb? WallAt(Vec2 point)
+        {
+            for (var i = 0; i < Walls.Count; i++)
+            {
+                var wall = Walls[i];
+                if (point.X > wall.Left && point.X < wall.Right && point.Y > wall.Bottom && point.Y < wall.Top)
+                    return wall;
+            }
+
+            return null;
+        }
+
         bool Collides(Vec2 position)
         {
             var box = new Aabb(
@@ -115,6 +176,34 @@ namespace Champ.Sim
                 new(bounds, SurfaceKind.Grass),
                 new(new Aabb(-2f, -40f, 4f, 30f), SurfaceKind.Path),
                 new(new Aabb(-16f, -10f, 32f, 20f), SurfaceKind.Stone),
+            };
+        }
+
+        static List<Vec2> BuildTorches()
+        {
+            // Outside, 2.5 units clear of the outer wall faces (the walls span x +-16, y +-10);
+            // inside, one in each room. Walls block their light (see TorchLight), so a torch on
+            // one side of a wall never lights the other.
+            return new List<Vec2>
+            {
+                // South wall; the +-3 pair flanks the 4-wide gate.
+                new(-14f, -12.5f), new(-8f, -12.5f), new(-3f, -12.5f), new(3f, -12.5f), new(8f, -12.5f), new(14f, -12.5f),
+                // North wall
+                new(-14f, 12.5f), new(-7f, 12.5f), new(0f, 12.5f), new(7f, 12.5f), new(14f, 12.5f),
+                // West and east walls
+                new(-18.5f, -6f), new(-18.5f, 0f), new(-18.5f, 6f),
+                new(18.5f, -6f), new(18.5f, 0f), new(18.5f, 6f),
+                // Corners
+                new(-18.5f, -12.5f), new(18.5f, -12.5f), new(-18.5f, 12.5f), new(18.5f, 12.5f),
+                // Both sides of the 4-wide path
+                new(-3f, -18f), new(3f, -18f), new(-3f, -25f), new(3f, -25f), new(-3f, -32f), new(3f, -32f),
+                // Inside the keep: courtyard, both side chambers, the throne area between them, the
+                // two side corridors and the north room.
+                new(-7f, -6f), new(7f, -6f), new(-7f, 0f), new(7f, 0f),
+                new(-7f, 4.3f), new(7f, 4.3f),
+                new(0f, 5f),
+                new(-13f, 3f), new(13f, 3f),
+                new(-9f, 8f), new(9f, 8f),
             };
         }
 

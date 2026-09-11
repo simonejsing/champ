@@ -21,6 +21,13 @@ const float CameraHeight = 36f;
 const float ViewHeight = 24f;   // Stride's OrthographicSize is the FULL height, not the half
 const float HeroHeight = 1.1f;
 const int HeroShadowStrips = 8;   // across the shadow's width; each is clipped by walls on its own
+const float HeroGlow = 1.4f;          // emissive strength of the unlit hero
+const float TorchHeight = 1.6f;
+// A moonless night: torchlight is the only light. Ground and wall tops show their texture scaled
+// by a light map baked from CastleWorld.TorchLight; this sets how bright a torch is.
+const float TorchBrightness = 1f;
+const float LightMapScale = 2f;     // light maps store half the light, so overlapping torches don't clip
+const float TorchFlameGlow = 2f;
 
 Entity? hero = null;
 Entity[] heroShadow = Array.Empty<Entity>();
@@ -28,6 +35,7 @@ var heroShadowAlong = Vector3.Zero;   // unit direction his shadow falls, in wor
 var heroShadowSpan = 0f;              // its full length on open ground
 Entity? cameraEntity = null;
 var world = new CastleWorld();
+var surfaceTextures = new Dictionary<SurfaceKind, Texture>();
 var follow = new CameraFollow(world.Bounds, world.Hero);
 
 game.Run(start: Start, update: Update);
@@ -47,6 +55,7 @@ void Start(Scene scene)
                 toneMap.AutoExposure = false;
         }
     }
+
     game.SetCameraPosition(new Vector3(0f, CameraHeight, 0f));
     game.SetCameraRotation(new Vector3(0f, -90f, 0f));
 
@@ -59,21 +68,11 @@ void Start(Scene scene)
     var keyLight = scene.Entities.Concat(game.SceneSystem.SceneInstance.RootScene.Entities)
         .FirstOrDefault(e => e.Get<LightComponent>()?.Type is LightDirectional);
 
-    // SetupBase3D installs one shadow-casting directional light and nothing else, so anything
-    // inside a shadow gets zero light and renders pure black -- the hero vanished entirely
-    // whenever he stepped into a wall's shadow. A LightAmbient is ignored by this compositor,
-    // so fill with a dim shadow-less light pointing straight down: it lifts shadowed ground
-    // while leaving the key light's shadows visible.
-    // With every material diffuse, lit ground is key + fill and shadowed ground is fill alone,
-    // wherever it sits on screen. The toolkit's key (intensity 20) is far too strong for diffuse
-    // surfaces, so it is scaled down; the two values together set how bright lit ground is and
-    // how dark shadows are relative to it.
+    // A moonless night: no sun, moon or sky light, so everything the torches don't reach is black.
+    // The key light is switched off rather than dimmed to zero, which would still render its
+    // shadow map every frame. The entity stays: CreateHeroShadow reads its direction.
     if (keyLight?.Get<LightComponent>() is { } key)
-        key.Intensity *= 0.116f;
-
-    var fill = game.AddDirectionalLight(entityName: "Fill", enableShadows: false, intensity: 0.31f);
-    fill.Transform.Rotation = Quaternion.RotationYawPitchRoll(
-        0f, MathUtil.DegreesToRadians(-90f), 0f);
+        key.Enabled = false;
 
     var camera = cameraEntity.Get<CameraComponent>();
     camera.Projection = CameraProjectionMode.Orthographic;
@@ -93,7 +92,7 @@ void Start(Scene scene)
         var ground = game.Create3DPrimitive(PrimitiveModelType.Cube, new()
         {
             Size = new Vector3(surface.Box.W, 0.12f, surface.Box.H),
-            Material = TexturedMaterial(surface.Kind, surface.Box.W, surface.Box.H),
+            Material = LitMaterial(surface.Kind, surface.Box),
             IncludeCollider = false
         });
         ground.Transform.Position = new Vector3(surface.Box.CenterX, topY - 0.06f, -surface.Box.CenterY);
@@ -106,17 +105,25 @@ void Start(Scene scene)
         var block = game.Create3DPrimitive(PrimitiveModelType.Cube, new()
         {
             Size = new Vector3(wall.W, height, wall.H),
-            Material = TexturedMaterial(SurfaceKind.Wall, wall.W, wall.H),
+            Material = LitMaterial(SurfaceKind.Wall, wall),
             IncludeCollider = false
         });
         block.Transform.Position = new Vector3(wall.CenterX, height * 0.5f, -wall.CenterY);
         block.Scene = scene;
     }
 
+    // Torches outside the keep, one post/flame/light per entry; materials shared across all.
+    var postMaterial = FlatMaterial(new Color(70, 50, 34));
+    var flameMaterial = UnlitMaterial(new Color(255, 170, 60), TorchFlameGlow);
+    foreach (var torch in world.Torches)
+        CreateTorch(scene, torch, postMaterial, flameMaterial);
+
+    // The hero sits outside the lighting: an unlit colour that no light or shadow changes. He
+    // still throws a shadow -- the projected one from CreateHeroShadow.
     hero = game.Create3DPrimitive(PrimitiveModelType.Cube, new()
     {
         Size = new Vector3(CastleWorld.HeroHalf * 2f, HeroHeight, CastleWorld.HeroHalf * 2f),
-        Material = FlatMaterial(new Color(52, 110, 186)),
+        Material = UnlitMaterial(new Color(52, 110, 186), HeroGlow),
         IncludeCollider = false
     });
     hero.Scene = scene;
@@ -170,7 +177,6 @@ void PlaceHero()
     var basePosition = new Vector3(world.Hero.X, 0f, -world.Hero.Y);
     hero.Transform.Position = basePosition + new Vector3(0f, HeroHeight * 0.5f, 0f);
 
-    // Just clear of the stone floor at y = 0, and so also of the lower grass and path.
     // A real shadow stops at the first wall it meets and climbs its face; lying flat on the
     // ground, the quad would slide under a wall and reappear on the far side. Each strip runs
     // from under the hero along the shadow until the first wall in its own path, so a wall
@@ -262,10 +268,81 @@ Material ShadowMaterial() => Material.New(game.GraphicsDevice, new MaterialDescr
     }
 });
 
-// The toolkit's CreateMaterial only takes a flat colour, so build the material by hand to
-// get a tiling diffuse map out of the shared ground texels.
-Material TexturedMaterial(SurfaceKind kind, float width, float height)
+// A torch: a dark post with a glowing flame on top. Its light is not an object -- it is baked into
+// the light maps of the ground and wall tops around it (see LitMaterial).
+void CreateTorch(Scene scene, Vec2 at, Material postMaterial, Material flameMaterial)
 {
+    var basePosition = new Vector3(at.X, 0f, -at.Y);   // sim Y is world -Z, as everywhere here
+
+    var post = game.Create3DPrimitive(PrimitiveModelType.Cube, new()
+    {
+        Size = new Vector3(0.25f, TorchHeight, 0.25f),
+        Material = postMaterial,
+        IncludeCollider = false
+    });
+    post.Transform.Position = basePosition + new Vector3(0f, TorchHeight * 0.5f, 0f);
+    if (post.Get<ModelComponent>() is { } postModel)
+        postModel.IsShadowCaster = false;   // torches throw light, not a long dark streak
+    post.Scene = scene;
+
+    var flame = game.Create3DPrimitive(PrimitiveModelType.Cube, new()
+    {
+        Size = new Vector3(0.3f, 0.3f, 0.3f),
+        Material = flameMaterial,
+        IncludeCollider = false
+    });
+    flame.Transform.Position = basePosition + new Vector3(0f, TorchHeight + 0.15f, 0f);
+    if (flame.Get<ModelComponent>() is { } flameModel)
+        flameModel.IsShadowCaster = false;
+    flame.Scene = scene;
+
+}
+
+// Ground and wall tops at night: the tiled surface texture times the torchlight that reaches this
+// patch. Emissive rather than lit -- a moonless night has no light for the renderer to use, and
+// Stride's point lights are unusable here (its clustered renderer draws none of them, and without
+// it the plain point-light renderer crashes once the camera moves). So what shows is exactly the
+// light map: textured where a torch reaches, black everywhere else, and never through a wall.
+Material LitMaterial(SurfaceKind kind, Aabb box)
+{
+    var surface = new ComputeTextureColor(SurfaceTexture(kind))
+    {
+        AddressModeU = TextureAddressMode.Wrap,
+        AddressModeV = TextureAddressMode.Wrap,
+        Filtering = TextureFilter.Point,
+        Scale = new Vector2(box.W / SurfacePixels.WorldSize, box.H / SurfacePixels.WorldSize)
+    };
+    var light = new ComputeTextureColor(LightMap(box))
+    {
+        AddressModeU = TextureAddressMode.Clamp,
+        AddressModeV = TextureAddressMode.Clamp,
+        Filtering = TextureFilter.Linear
+    };
+
+    return Material.New(game.GraphicsDevice, new MaterialDescriptor
+    {
+        Attributes =
+        {
+            Emissive = new MaterialEmissiveMapFeature
+            {
+                EmissiveMap = new ComputeBinaryColor
+                {
+                    LeftChild = surface,
+                    RightChild = light,
+                    Operator = BinaryOperator.Multiply
+                },
+                Intensity = new ComputeFloat(TorchBrightness * LightMapScale)
+            }
+        }
+    });
+}
+
+// The shared ground texels for one surface kind, built once and reused by every patch and wall.
+Texture SurfaceTexture(SurfaceKind kind)
+{
+    if (surfaceTextures.TryGetValue(kind, out var cached))
+        return cached;
+
     var argb = SurfacePixels.CreateArgb(kind);
     var data = new byte[argb.Length * 4];
     for (var i = 0; i < argb.Length; i++)
@@ -277,31 +354,44 @@ Material TexturedMaterial(SurfaceKind kind, float width, float height)
         data[i * 4 + 3] = (byte)(p >> 24);
     }
 
+    // _SRgb so the texels land in the same colour space the rest of the scene uses.
     var texture = Texture.New2D(
         game.GraphicsDevice,
         SurfacePixels.Size,
         SurfacePixels.Size,
         PixelFormat.R8G8B8A8_UNorm_SRgb,
         data);
+    surfaceTextures[kind] = texture;
+    return texture;
+}
 
-    var map = new ComputeTextureColor(texture)
+// The torchlight over one patch, two texels per world unit, tinted warm. Stored at 1/LightMapScale
+// so where torches overlap the sum doesn't clip; LitMaterial scales it back up.
+Texture LightMap(Aabb box)
+{
+    const float texelsPerUnit = 2f;
+    var width = Math.Max(2, (int)MathF.Ceiling(box.W * texelsPerUnit));
+    var height = Math.Max(2, (int)MathF.Ceiling(box.H * texelsPerUnit));
+    var data = new byte[width * height * 4];
+    for (var row = 0; row < height; row++)
     {
-        AddressModeU = TextureAddressMode.Wrap,
-        AddressModeV = TextureAddressMode.Wrap,
-        Filtering = TextureFilter.Point,
-        Scale = new Vector2(
-            width / SurfacePixels.WorldSize,
-            height / SurfacePixels.WorldSize)
-    };
-
-    return Material.New(game.GraphicsDevice, new MaterialDescriptor
-    {
-        Attributes =
+        for (var column = 0; column < width; column++)
         {
-            Diffuse = new MaterialDiffuseMapFeature(map),
-            DiffuseModel = new MaterialDiffuseLambertModelFeature()
+            // Rows run south to north across the patch's top face (the cube's V follows world -Z,
+            // which is sim +Y here), columns west to east.
+            var point = new Vec2(
+                box.X + (column + 0.5f) / width * box.W,
+                box.Y + (row + 0.5f) / height * box.H);
+            var light = MathF.Min(world.TorchLight(point) / LightMapScale, 1f);
+            var k = (row * width + column) * 4;
+            data[k] = (byte)(255f * light);
+            data[k + 1] = (byte)(255f * light * 0.72f);
+            data[k + 2] = (byte)(255f * light * 0.45f);
+            data[k + 3] = 255;
         }
-    });
+    }
+
+    return Texture.New2D(game.GraphicsDevice, width, height, PixelFormat.R8G8B8A8_UNorm, data);
 }
 
 // Diffuse only, like the ground. The toolkit's CreateMaterial is fully metallic, and a metal's
@@ -314,5 +404,19 @@ Material FlatMaterial(Color color) => Material.New(game.GraphicsDevice, new Mate
     {
         Diffuse = new MaterialDiffuseMapFeature(new ComputeColor(color)),
         DiffuseModel = new MaterialDiffuseLambertModelFeature()
+    }
+});
+
+// Emissive only, no diffuse. Shading and shadows only ever change direct lighting, so this shows
+// the same colour whatever light does or doesn't reach it.
+Material UnlitMaterial(Color color, float intensity) => Material.New(game.GraphicsDevice, new MaterialDescriptor
+{
+    Attributes =
+    {
+        Emissive = new MaterialEmissiveMapFeature
+        {
+            EmissiveMap = new ComputeColor(color),
+            Intensity = new ComputeFloat(intensity)
+        }
     }
 });
