@@ -1,0 +1,60 @@
+{
+  // Run entries, not debug entries. js-debug -- the JavaScript debugger built into VS Code
+  // and Cursor -- launches whatever "runtimeExecutable" names, and "noDebug" tells it not to
+  // wait for a debugger to attach, so these run .NET and PowerShell perfectly well. Output
+  // goes to the Debug Console rather than a terminal, so nothing is left open afterwards,
+  // and no extension has to be installed.
+  //
+  // Cursor marks "noDebug" as not allowed: it is a DAP launch-request field rather than part
+  // of js-debug's own schema, and VS Code passes it through. The warning is cosmetic; drop
+  // the property and the session waits for an attach that never comes.
+  //
+  // Breakpoints are the thing that would need an extension, and none is configured.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run MonoGame",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "engines/Champ.MonoGame"],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "noDebug": true
+    },
+    {
+      "name": "Run Stride",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "scripts/stride.ps1",
+        "run"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "noDebug": true
+    },
+    {
+      // Unity has no incremental run: this is the batchmode player build, then the exe.
+      "name": "Run Unity",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "scripts/unity.ps1",
+        "-Run"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "outputCapture": "std",
+      "noDebug": true
+    }
+  ]
+}

@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RollForward>Major</RollForward>
+    <!-- Whether a RID is pinned below or not, the exe lands in bin/$(Configuration)/$(TargetFramework)/.
+         Without this the path grows a RID folder only on the hosts that pin one, and every run
+         configuration in .vscode/ would have to name an architecture. -->
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
   <!-- Stride's shader compiler pipeline loads spirv-cross.dll unconditionally (even on the

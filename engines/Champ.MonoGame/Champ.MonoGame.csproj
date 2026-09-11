@@ -7,6 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RollForward>Major</RollForward>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Whether a RID is pinned below or not, the exe lands in bin/$(Configuration)/$(TargetFramework)/.
+         Without this the path grows a RID folder only on the hosts that pin one, and every run
+         configuration in .vscode/ would have to name an architecture. -->
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
   <!-- MonoGame 3.8.4's loader looks next to the exe, not in runtimes/. Pin the host RID
