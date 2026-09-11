@@ -13,6 +13,22 @@ public sealed class CastleGame : Game
     SpriteBatch _spriteBatch = null!;
     Texture2D _hero = null!;
     Texture2D[] _surfaces = null!;
+    Texture2D _light = null!;
+    Texture2D _pixel = null!;
+
+    // The colour torchlight lends to what it falls on, matching Stride's light maps. The ambient
+    // floor underneath it is the same hue, so unlit ground reads as distant firelight.
+    static readonly Vector3 TorchTint = new(1f, 0.72f, 0.45f);
+
+    // Multiply: dest * src, nothing added. This is what turns the light map into shading rather
+    // than a veil drawn over the world.
+    static readonly BlendState Multiply = new()
+    {
+        ColorSourceBlend = Blend.Zero,
+        ColorDestinationBlend = Blend.SourceColor,
+        AlphaSourceBlend = Blend.Zero,
+        AlphaDestinationBlend = Blend.One
+    };
 
     public CastleGame()
     {
@@ -43,6 +59,39 @@ public sealed class CastleGame : Game
         foreach (var kind in kinds)
             _surfaces[(int)kind] = CreateTexture(
                 SurfacePixels.CreateArgb(kind), SurfacePixels.Size, SurfacePixels.Size);
+
+        _pixel = new Texture2D(GraphicsDevice, 1, 1);
+        _pixel.SetData(new[] { Color.White });
+        _light = BakeLightMap();
+    }
+
+    // The torches never move, so the light over the whole map is baked once and multiplied over
+    // the scene each frame -- the same trick Stride uses, at the same two texels per world unit.
+    // Linear sampling smooths the grid back out; the texture is a hundredth the size of the map
+    // it covers.
+    Texture2D BakeLightMap()
+    {
+        const float texelsPerUnit = 2f;
+        var bounds = _world.Bounds;
+        var width = (int)MathF.Ceiling(bounds.W * texelsPerUnit);
+        var height = (int)MathF.Ceiling(bounds.H * texelsPerUnit);
+        var texels = new Color[width * height];
+        for (var row = 0; row < height; row++)
+        {
+            for (var column = 0; column < width; column++)
+            {
+                // The camera matrix flips Y, so texture rows run south to north, as in Stride.
+                var point = new Vec2(
+                    bounds.X + (column + 0.5f) / width * bounds.W,
+                    bounds.Y + (row + 0.5f) / height * bounds.H);
+                var light = MathF.Min(_world.LightAt(point), 1f);
+                texels[row * width + column] = new Color(light * TorchTint.X, light * TorchTint.Y, light * TorchTint.Z);
+            }
+        }
+
+        var texture = new Texture2D(GraphicsDevice, width, height);
+        texture.SetData(texels);
+        return texture;
     }
 
     protected override void Update(GameTime gameTime)
@@ -66,7 +115,9 @@ public sealed class CastleGame : Game
 
     protected override void Draw(GameTime gameTime)
     {
-        GraphicsDevice.Clear(new Color(34, 38, 44));
+        GraphicsDevice.Clear(Color.Black);
+        var camera = CameraMatrix();
+
         // Negative Y scale (Y-up world) reverses triangle winding; default culling
         // would discard every sprite and leave only the clear color.
         _spriteBatch.Begin(
@@ -76,7 +127,7 @@ public sealed class CastleGame : Game
             DepthStencilState.None,
             RasterizerState.CullNone,
             null,
-            CameraMatrix());
+            camera);
 
         // Surfaces are ordered back-to-front, so painting them in order is the depth test.
         foreach (var surface in _world.Surfaces)
@@ -84,6 +135,57 @@ public sealed class CastleGame : Game
         var wallTexture = _surfaces[(int)SurfaceKind.Wall];
         foreach (var wall in _world.Walls)
             FillTiled(wall, wallTexture);
+        _spriteBatch.End();
+
+        // Night falls on the ground and the walls only. A separate pass because a multiply
+        // blend and a linear sampler cannot share a batch with the tiled surfaces above.
+        var bounds = _world.Bounds;
+        _spriteBatch.Begin(
+            SpriteSortMode.Deferred,
+            Multiply,
+            SamplerState.LinearClamp,
+            DepthStencilState.None,
+            RasterizerState.CullNone,
+            null,
+            camera);
+        _spriteBatch.Draw(
+            _light,
+            new Vector2(bounds.X, bounds.Y),
+            null,
+            Color.White,
+            0f,
+            Vector2.Zero,
+            new Vector2(bounds.W / _light.Width, bounds.H / _light.Height),
+            SpriteEffects.None,
+            0f);
+        _spriteBatch.End();
+
+        // Flames and the hero come after the darkening, which is what keeps them at full
+        // brightness -- Stride and Unity leave both unlit for the same reason.
+        _spriteBatch.Begin(
+            SpriteSortMode.Deferred,
+            BlendState.AlphaBlend,
+            SamplerState.PointClamp,
+            DepthStencilState.None,
+            RasterizerState.CullNone,
+            null,
+            camera);
+
+        const float flameSize = 0.45f;
+        var flameColor = new Color(1f, 0.8f, 0.35f);
+        foreach (var torch in _world.Torches)
+        {
+            _spriteBatch.Draw(
+                _pixel,
+                new Vector2(torch.X - flameSize * 0.5f, torch.Y - flameSize * 0.5f),
+                null,
+                flameColor,
+                0f,
+                Vector2.Zero,
+                new Vector2(flameSize, flameSize),
+                SpriteEffects.None,
+                0f);
+        }
 
         var heroSize = CastleWorld.HeroHalf * 2f;
         _spriteBatch.Draw(
@@ -160,6 +262,8 @@ public sealed class CastleGame : Game
     protected override void UnloadContent()
     {
         _hero?.Dispose();
+        _light?.Dispose();
+        _pixel?.Dispose();
         if (_surfaces != null)
         {
             foreach (var texture in _surfaces)

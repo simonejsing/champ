@@ -15,6 +15,20 @@ namespace Champ.Sim
         /// <summary>How far a torch's light reaches.</summary>
         public const float TorchRange = 7f;
 
+        /// <summary>
+        /// Light reaching every point regardless of torches, so nothing renders pure black and
+        /// the map stays navigable away from the keep. Renderers tint it with their own torch
+        /// colour -- this is the one number that moves all three at once.
+        /// </summary>
+        public const float AmbientLight = 0.35f;
+
+        /// <summary>
+        /// How bright one torch is at its own post. Unity feeds it straight to its point lights;
+        /// the renderers that bake light maps scale <see cref="TorchLight"/> by it, so all three
+        /// agree on how far a torch throws and how hard.
+        /// </summary>
+        public const float TorchIntensity = 1.5f;
+
         public Vec2 Hero { get; private set; }
 
         /// <summary>Full extent of the map. The hero is clamped inside it.</summary>
@@ -132,12 +146,25 @@ namespace Champ.Sim
                 if (reach > 1e-4f && CastRay(torch, new Vec2(tx / reach, ty / reach), reach) < reach - 1e-3f)
                     continue;   // a wall is in the way
 
-                var falloff = 1f - distSq / rangeSq;
-                total += falloff * falloff;
+                // Unity's built-in point light attenuation, 1/(1 + 25(d/r)^2), because Unity's
+                // real lights are what the baked renderers have to match -- (1 - d^2/r^2)^2 was
+                // several times brighter across most of a torch's reach and washed the pools out.
+                // Rescaled so it fades to nothing at the range edge rather than stepping off 1/26.
+                const float edge = 1f / 26f;
+                var atten = 1f / (1f + 25f * distSq / rangeSq);
+                total += (atten - edge) / (1f - edge);
             }
 
             return total;
         }
+
+        /// <summary>
+        /// Total light at <paramref name="point"/>: <see cref="AmbientLight"/> plus whatever the
+        /// torches add, at <see cref="TorchIntensity"/>. Renderers that bake light into textures
+        /// want this; Unity has real lights and an ambient setting, so it applies both terms
+        /// itself and asks for <see cref="TorchLight"/> alone.
+        /// </summary>
+        public float LightAt(Vec2 point) => AmbientLight + TorchIntensity * TorchLight(point);
 
         Aabb? WallAt(Vec2 point)
         {

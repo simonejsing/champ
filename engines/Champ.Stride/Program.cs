@@ -23,10 +23,11 @@ const float HeroHeight = 1.1f;
 const int HeroShadowStrips = 8;   // across the shadow's width; each is clipped by walls on its own
 const float HeroGlow = 1.4f;          // emissive strength of the unlit hero
 const float TorchHeight = 1.6f;
-// A moonless night: torchlight is the only light. Ground and wall tops show their texture scaled
-// by a light map baked from CastleWorld.TorchLight; this sets how bright a torch is.
+// Night: torches are the only real light, over a dim floor of CastleWorld.AmbientLight so nothing
+// goes fully black. Ground and wall tops show their texture scaled by a light map baked from
+// CastleWorld.LightAt, which already carries CastleWorld.TorchIntensity -- this is the trim on top
+// of it, for matching Unity, the reference for how the world should look.
 const float TorchBrightness = 1f;
-const float LightMapScale = 2f;     // light maps store half the light, so overlapping torches don't clip
 const float TorchFlameGlow = 2f;
 
 Entity? hero = null;
@@ -44,16 +45,32 @@ void Start(Scene scene)
 {
     game.SetupBase3D();
 
-    // The tone map's auto-exposure renormalises every frame to its average brightness, so the
-    // whole scene brightened or dimmed as the view moved between lit and shadowed ground. A
-    // fixed exposure keeps a patch of ground the same brightness wherever the camera is.
-    if (FindForwardRenderer(game.SceneSystem.GraphicsCompositor?.Game) is { PostEffects: PostProcessingEffects effects })
+    // Unity is the reference for how this world is lit, and Unity applies no tone curve and no
+    // bloom: it renders in gamma space and clips at white. Stride's defaults are a Hejl2 filmic
+    // curve over linear values that here rarely pass 0.3 -- which crushed everything towards
+    // black and was the single biggest reason the two engines looked nothing alike. Turning the
+    // tone map off also settles the auto-exposure problem it used to have, where the whole scene
+    // brightened or dimmed as the view moved between lit and shadowed ground.
+    if (FindForwardRenderer(game.SceneSystem.GraphicsCompositor?.Game) is { } forward)
     {
-        foreach (var transform in effects.ColorTransforms.Transforms)
+        if (forward.PostEffects is PostProcessingEffects effects)
         {
-            if (transform is ToneMap toneMap)
-                toneMap.AutoExposure = false;
+            foreach (var transform in effects.ColorTransforms.Transforms)
+            {
+                if (transform is ToneMap toneMap)
+                    toneMap.Enabled = false;
+            }
+
+            // Only the flames and the hero's blue channel ever exceed 1.0, so this is a torch-glow
+            // effect. Unity has no equivalent; flip it back on if the flames look flat.
+            effects.Bloom.Enabled = false;
         }
+
+        // The toolkit clears to cornflower blue. Nothing shows it today -- the grass spans the
+        // whole map and the camera is clamped inside it -- but Unity clears to black, and a
+        // wider view should find night there rather than daylight sky.
+        if (forward.Clear is { } clear)
+            clear.Color = Color.Black;
     }
 
     game.SetCameraPosition(new Vector3(0f, CameraHeight, 0f));
@@ -113,7 +130,11 @@ void Start(Scene scene)
     }
 
     // Torches outside the keep, one post/flame/light per entry; materials shared across all.
-    var postMaterial = FlatMaterial(new Color(70, 50, 34));
+    // The post is emissive like the ground rather than diffuse-lit: no light in this scene is
+    // enabled, so a Lambert material has nothing to reflect and every post rendered pure black.
+    // One material serves all of them -- a post always stands at the foot of its own torch, so
+    // the light reaching it is the same everywhere: its own torch at full strength, plus ambient.
+    var postMaterial = UnlitMaterial(new Color(70, 50, 34), TorchBrightness * (1f + CastleWorld.AmbientLight));
     var flameMaterial = UnlitMaterial(new Color(255, 170, 60), TorchFlameGlow);
     foreach (var torch in world.Torches)
         CreateTorch(scene, torch, postMaterial, flameMaterial);
@@ -331,7 +352,7 @@ Material LitMaterial(SurfaceKind kind, Aabb box)
                     RightChild = light,
                     Operator = BinaryOperator.Multiply
                 },
-                Intensity = new ComputeFloat(TorchBrightness * LightMapScale)
+                Intensity = new ComputeFloat(TorchBrightness)
             }
         }
     });
@@ -365,8 +386,10 @@ Texture SurfaceTexture(SurfaceKind kind)
     return texture;
 }
 
-// The torchlight over one patch, two texels per world unit, tinted warm. Stored at 1/LightMapScale
-// so where torches overlap the sum doesn't clip; LitMaterial scales it back up.
+// The light over one patch -- torches plus CastleWorld.AmbientLight -- two texels per world unit,
+// tinted warm, clamped at full brightness where torch pools overlap. Unity's forward pass clips
+// the same way, and clipping here rather than storing a scaled-down copy keeps the stored value
+// in the same gamma space the sRGB sampler expects.
 Texture LightMap(Aabb box)
 {
     const float texelsPerUnit = 2f;
@@ -382,7 +405,7 @@ Texture LightMap(Aabb box)
             var point = new Vec2(
                 box.X + (column + 0.5f) / width * box.W,
                 box.Y + (row + 0.5f) / height * box.H);
-            var light = MathF.Min(world.TorchLight(point) / LightMapScale, 1f);
+            var light = MathF.Min(world.LightAt(point), 1f);
             var k = (row * width + column) * 4;
             data[k] = (byte)(255f * light);
             data[k + 1] = (byte)(255f * light * 0.72f);
@@ -391,21 +414,10 @@ Texture LightMap(Aabb box)
         }
     }
 
-    return Texture.New2D(game.GraphicsDevice, width, height, PixelFormat.R8G8B8A8_UNorm, data);
+    // sRGB, like the surface texture it multiplies. Stored linear, the same light value darkened
+    // far more here than the identical number does in Unity, which lights in gamma space.
+    return Texture.New2D(game.GraphicsDevice, width, height, PixelFormat.R8G8B8A8_UNorm_SRgb, data);
 }
-
-// Diffuse only, like the ground. The toolkit's CreateMaterial is fully metallic, and a metal's
-// shading is all reflection, which depends on where the camera sits -- surfaces brightened
-// toward the middle of the screen and darkened toward its edges, so the hero changed colour as
-// the camera stopped following him at the map edge.
-Material FlatMaterial(Color color) => Material.New(game.GraphicsDevice, new MaterialDescriptor
-{
-    Attributes =
-    {
-        Diffuse = new MaterialDiffuseMapFeature(new ComputeColor(color)),
-        DiffuseModel = new MaterialDiffuseLambertModelFeature()
-    }
-});
 
 // Emissive only, no diffuse. Shading and shadows only ever change direct lighting, so this shows
 // the same colour whatever light does or doesn't reach it.

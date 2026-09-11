@@ -20,8 +20,9 @@ namespace Champ.Unity
         const float CameraHeight = 30f;
         const float SurfaceStep = 0.02f;
         const float TorchHeight = 1.6f;
-        // A moonless night: the torches are the only light. Not checked here, as Unity cannot be run.
-        const float TorchIntensity = 1.5f;
+        // Tints both the torch lights and the ambient floor, so unlit ground reads as the same
+        // firelight everything else is bathed in, only fainter.
+        static readonly Color TorchColor = new Color(1f, 0.63f, 0.31f);
 
         CastleWorld _world;
         CameraFollow _follow;
@@ -114,8 +115,10 @@ namespace Champ.Unity
             var light = go.AddComponent<Light>();
             light.type = LightType.Point;
             light.range = CastleWorld.TorchRange;
-            light.color = new Color(1f, 0.63f, 0.31f);
-            light.intensity = TorchIntensity;
+            light.color = TorchColor;
+            // Shared with the light maps Stride and MonoGame bake, so a torch is the same torch
+            // in all three. This is night's only real light; everything else is ambient.
+            light.intensity = CastleWorld.TorchIntensity;
             light.shadows = LightShadows.Hard;
         }
 
@@ -160,13 +163,15 @@ namespace Champ.Unity
             _camera.farClipPlane = 60f;
         }
 
-        // A moonless night: no sun or moon, and no light from the sky either. The Standard shader
-        // otherwise picks up ambient and reflected light from the scene's default skybox, which
-        // would lift everything off black -- the torches must be the only light.
+        // Night: no sun, no moon, and nothing from the sky -- the Standard shader would otherwise
+        // pick up ambient and reflected light from the scene's default skybox and lift everything
+        // towards daylight. What replaces it is a flat floor of CastleWorld.AmbientLight in the
+        // torch colour, so ground the torches never reach stays walkable instead of going black.
+        // The same constant feeds the light maps Stride and MonoGame bake.
         static void EnsureNight()
         {
             RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = Color.black;
+            RenderSettings.ambientLight = TorchColor * CastleWorld.AmbientLight;
             RenderSettings.reflectionIntensity = 0f;
         }
 
