@@ -9,6 +9,8 @@ using Stride.Graphics;
 using Stride.Games;
 using Stride.Input;
 using Stride.Rendering;
+using Stride.Rendering.Compositing;
+using Stride.Rendering.Images;
 using Stride.Rendering.Lights;
 using Stride.Rendering.Materials;
 using Stride.Rendering.Materials.ComputeColors;
@@ -33,6 +35,18 @@ game.Run(start: Start, update: Update);
 void Start(Scene scene)
 {
     game.SetupBase3D();
+
+    // The tone map's auto-exposure renormalises every frame to its average brightness, so the
+    // whole scene brightened or dimmed as the view moved between lit and shadowed ground. A
+    // fixed exposure keeps a patch of ground the same brightness wherever the camera is.
+    if (FindForwardRenderer(game.SceneSystem.GraphicsCompositor?.Game) is { PostEffects: PostProcessingEffects effects })
+    {
+        foreach (var transform in effects.ColorTransforms.Transforms)
+        {
+            if (transform is ToneMap toneMap)
+                toneMap.AutoExposure = false;
+        }
+    }
     game.SetCameraPosition(new Vector3(0f, CameraHeight, 0f));
     game.SetCameraRotation(new Vector3(0f, -90f, 0f));
 
@@ -50,13 +64,14 @@ void Start(Scene scene)
     // whenever he stepped into a wall's shadow. A LightAmbient is ignored by this compositor,
     // so fill with a dim shadow-less light pointing straight down: it lifts shadowed ground
     // while leaving the key light's shadows visible.
-    // Shadows are darkened by keeping the fill low, but the fill lights open ground too.
-    // Brighten the key -- the light shadows block -- so lit ground keeps its tone while only
-    // the shadows get darker.
+    // With every material diffuse, lit ground is key + fill and shadowed ground is fill alone,
+    // wherever it sits on screen. The toolkit's key (intensity 20) is far too strong for diffuse
+    // surfaces, so it is scaled down; the two values together set how bright lit ground is and
+    // how dark shadows are relative to it.
     if (keyLight?.Get<LightComponent>() is { } key)
-        key.Intensity *= 1.25f;
+        key.Intensity *= 0.116f;
 
-    var fill = game.AddDirectionalLight(entityName: "Fill", enableShadows: false, intensity: 0.075f);
+    var fill = game.AddDirectionalLight(entityName: "Fill", enableShadows: false, intensity: 0.31f);
     fill.Transform.Rotation = Quaternion.RotationYawPitchRoll(
         0f, MathUtil.DegreesToRadians(-90f), 0f);
 
@@ -101,7 +116,7 @@ void Start(Scene scene)
     hero = game.Create3DPrimitive(PrimitiveModelType.Cube, new()
     {
         Size = new Vector3(CastleWorld.HeroHalf * 2f, HeroHeight, CastleWorld.HeroHalf * 2f),
-        Material = game.CreateMaterial(new Color(52, 110, 186)),
+        Material = FlatMaterial(new Color(52, 110, 186)),
         IncludeCollider = false
     });
     hero.Scene = scene;
@@ -138,6 +153,15 @@ void Update(Scene scene, GameTime time)
 
     PlaceHero();
 }
+
+static ForwardRenderer? FindForwardRenderer(ISceneRenderer? renderer) => renderer switch
+{
+    ForwardRenderer forward => forward,
+    SceneCameraRenderer camera => FindForwardRenderer(camera.Child),
+    SceneRendererCollection collection =>
+        collection.Children.Select(FindForwardRenderer).FirstOrDefault(found => found is not null),
+    _ => null
+};
 
 void PlaceHero()
 {
@@ -275,12 +299,20 @@ Material TexturedMaterial(SurfaceKind kind, float width, float height)
         Attributes =
         {
             Diffuse = new MaterialDiffuseMapFeature(map),
-            DiffuseModel = new MaterialDiffuseLambertModelFeature(),
-            // 1.0f matches the toolkit's CreateMaterial default; 0f leaves the surface fully
-            // dielectric, which adds a full Lambert diffuse term and washes the ground out.
-            Specular = new MaterialMetalnessMapFeature(new ComputeFloat(1.0f)),
-            SpecularModel = new MaterialSpecularMicrofacetModelFeature(),
-            MicroSurface = new MaterialGlossinessMapFeature(new ComputeFloat(0.65f))
+            DiffuseModel = new MaterialDiffuseLambertModelFeature()
         }
     });
 }
+
+// Diffuse only, like the ground. The toolkit's CreateMaterial is fully metallic, and a metal's
+// shading is all reflection, which depends on where the camera sits -- surfaces brightened
+// toward the middle of the screen and darkened toward its edges, so the hero changed colour as
+// the camera stopped following him at the map edge.
+Material FlatMaterial(Color color) => Material.New(game.GraphicsDevice, new MaterialDescriptor
+{
+    Attributes =
+    {
+        Diffuse = new MaterialDiffuseMapFeature(new ComputeColor(color)),
+        DiffuseModel = new MaterialDiffuseLambertModelFeature()
+    }
+});
