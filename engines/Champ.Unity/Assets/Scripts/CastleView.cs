@@ -85,9 +85,8 @@ namespace Champ.Unity
         }
 
         // A torch: a dark post, a bright flame on top, and a warm point light at flame height. The
-        // light casts shadows -- that is what stops it reaching through a wall into the next room
-        // (Stride gets the same result from CastleWorld.TorchLight). The post and flame cast none,
-        // or the torch would throw a dark streak across its own light.
+        // light casts shadows -- that is what stops it reaching through a wall into the next room.
+        // The post and flame cast none, or the torch would throw a dark streak across its own light.
         void CreateTorch(Vec2 at, string name)
         {
             const float post = 0.25f;
@@ -116,8 +115,7 @@ namespace Champ.Unity
             light.type = LightType.Point;
             light.range = CastleWorld.TorchRange;
             light.color = TorchColor;
-            // Shared with the light maps Stride and MonoGame bake, so a torch is the same torch
-            // in all three. This is night's only real light; everything else is ambient.
+            // The only real light in the scene; everything else is the ambient floor.
             light.intensity = CastleWorld.TorchIntensity;
             light.shadows = LightShadows.Hard;
         }
@@ -136,7 +134,7 @@ namespace Champ.Unity
             // and reserves world Y for height so a top-down camera can see 3D depth/shadows.
             _hero.position = new Vector3(_world.Hero.X, FloorHeight + 0.01f, _world.Hero.Y);
 
-            // orthographicSize is the HALF height in Unity, unlike Stride's OrthographicSize.
+            // orthographicSize is the HALF height, so the visible height is twice it.
             var viewHeight = _camera.orthographicSize * 2f;
             _follow.Update(_world.Hero, viewHeight * _camera.aspect, viewHeight, Time.deltaTime);
             _camera.transform.position =
@@ -167,7 +165,6 @@ namespace Champ.Unity
         // pick up ambient and reflected light from the scene's default skybox and lift everything
         // towards daylight. What replaces it is a flat floor of CastleWorld.AmbientLight in the
         // torch colour, so ground the torches never reach stays walkable instead of going black.
-        // The same constant feeds the light maps Stride and MonoGame bake.
         static void EnsureNight()
         {
             RenderSettings.ambientMode = AmbientMode.Flat;

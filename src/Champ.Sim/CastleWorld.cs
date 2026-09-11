@@ -17,16 +17,12 @@ namespace Champ.Sim
 
         /// <summary>
         /// Light reaching every point regardless of torches, so nothing renders pure black and
-        /// the map stays navigable away from the keep. Renderers tint it with their own torch
-        /// colour -- this is the one number that moves all three at once.
+        /// the map stays navigable away from the keep. The renderer tints it with the torch
+        /// colour, so unlit ground reads as the same firelight, only fainter.
         /// </summary>
         public const float AmbientLight = 0.35f;
 
-        /// <summary>
-        /// How bright one torch is at its own post. Unity feeds it straight to its point lights;
-        /// the renderers that bake light maps scale <see cref="TorchLight"/> by it, so all three
-        /// agree on how far a torch throws and how hard.
-        /// </summary>
+        /// <summary>How bright one torch is at its own post.</summary>
         public const float TorchIntensity = 1.5f;
 
         public Vec2 Hero { get; private set; }
@@ -115,69 +111,6 @@ namespace Champ.Sim
             return enter < exit;
         }
 
-        /// <summary>
-        /// Torchlight arriving at <paramref name="point"/>; 0 where no torch reaches. Each torch
-        /// within <see cref="TorchRange"/> adds a smooth falloff, unless a wall stands between
-        /// them. A point inside a wall counts as lit when the torch can see that wall's nearest
-        /// face, so renderers can light wall tops as well as the ground.
-        /// </summary>
-        public float TorchLight(Vec2 point)
-        {
-            const float rangeSq = TorchRange * TorchRange;
-            var total = 0f;
-            for (var i = 0; i < Torches.Count; i++)
-            {
-                var torch = Torches[i];
-                var dx = point.X - torch.X;
-                var dy = point.Y - torch.Y;
-                var distSq = dx * dx + dy * dy;
-                if (distSq >= rangeSq)
-                    continue;
-
-                var target = point;
-                if (WallAt(point) is { } wall)
-                    target = new Vec2(
-                        Math.Clamp(torch.X, wall.Left, wall.Right),
-                        Math.Clamp(torch.Y, wall.Bottom, wall.Top));
-
-                var tx = target.X - torch.X;
-                var ty = target.Y - torch.Y;
-                var reach = MathF.Sqrt(tx * tx + ty * ty);
-                if (reach > 1e-4f && CastRay(torch, new Vec2(tx / reach, ty / reach), reach) < reach - 1e-3f)
-                    continue;   // a wall is in the way
-
-                // Unity's built-in point light attenuation, 1/(1 + 25(d/r)^2), because Unity's
-                // real lights are what the baked renderers have to match -- (1 - d^2/r^2)^2 was
-                // several times brighter across most of a torch's reach and washed the pools out.
-                // Rescaled so it fades to nothing at the range edge rather than stepping off 1/26.
-                const float edge = 1f / 26f;
-                var atten = 1f / (1f + 25f * distSq / rangeSq);
-                total += (atten - edge) / (1f - edge);
-            }
-
-            return total;
-        }
-
-        /// <summary>
-        /// Total light at <paramref name="point"/>: <see cref="AmbientLight"/> plus whatever the
-        /// torches add, at <see cref="TorchIntensity"/>. Renderers that bake light into textures
-        /// want this; Unity has real lights and an ambient setting, so it applies both terms
-        /// itself and asks for <see cref="TorchLight"/> alone.
-        /// </summary>
-        public float LightAt(Vec2 point) => AmbientLight + TorchIntensity * TorchLight(point);
-
-        Aabb? WallAt(Vec2 point)
-        {
-            for (var i = 0; i < Walls.Count; i++)
-            {
-                var wall = Walls[i];
-                if (point.X > wall.Left && point.X < wall.Right && point.Y > wall.Bottom && point.Y < wall.Top)
-                    return wall;
-            }
-
-            return null;
-        }
-
         bool Collides(Vec2 position)
         {
             var box = new Aabb(
@@ -209,7 +142,7 @@ namespace Champ.Sim
         static List<Vec2> BuildTorches()
         {
             // Outside, 2.5 units clear of the outer wall faces (the walls span x +-16, y +-10);
-            // inside, one in each room. Walls block their light (see TorchLight), so a torch on
+            // inside, one in each room. The renderer's lights cast shadows, so a torch on
             // one side of a wall never lights the other.
             return new List<Vec2>
             {

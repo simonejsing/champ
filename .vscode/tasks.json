@@ -1,62 +1,6 @@
 {
   "version": "2.0.0",
   "tasks": [
-    {
-      "label": "build: MonoGame",
-      "type": "process",
-      "command": "dotnet",
-      "args": [
-        "build",
-        "${workspaceFolder}/engines/Champ.MonoGame/Champ.MonoGame.csproj"
-      ],
-      "group": "build",
-      "problemMatcher": "$msCompile"
-    },
-    {
-      "label": "run: MonoGame",
-      "type": "process",
-      "command": "dotnet",
-      "args": [
-        "run",
-        "--project",
-        "${workspaceFolder}/engines/Champ.MonoGame"
-      ],
-      "group": "build",
-      "problemMatcher": "$msCompile",
-      "presentation": { "panel": "dedicated", "clear": true }
-    },
-
-    // Stride goes through scripts/stride.ps1: on an ARM64 host it builds win-x64 and needs
-    // an x64 SDK on PATH plus an x64 runtime root, both discovered there rather than named
-    // here. On x64 the script is a plain dotnet call.
-    {
-      "label": "build: Stride",
-      "type": "process",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", "${workspaceFolder}/scripts/stride.ps1",
-        "build"
-      ],
-      "group": "build",
-      "problemMatcher": "$msCompile"
-    },
-    {
-      "label": "run: Stride",
-      "type": "process",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", "${workspaceFolder}/scripts/stride.ps1",
-        "run"
-      ],
-      "group": "build",
-      "problemMatcher": "$msCompile",
-      "presentation": { "panel": "dedicated", "clear": true }
-    },
-
     // Unity has no `dotnet run`, so this builds the standalone player and launches it.
     // scripts/unity.ps1 resolves the editor for the version in ProjectVersion.txt
     // (override with UNITY_EDITOR) and drives its batchmode build.
@@ -80,6 +24,19 @@
       "dependsOn": "build: Unity player",
       "problemMatcher": [],
       "presentation": { "panel": "dedicated", "clear": true }
+    },
+    // The sim is a plain netstandard library as well as a Unity package, so it can be
+    // type-checked without opening Unity. $msCompile puts any errors in the Problems panel.
+    {
+      "label": "build: sim",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/src/Champ.Sim/Champ.Sim.csproj"
+      ],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$msCompile"
     }
   ]
 }
