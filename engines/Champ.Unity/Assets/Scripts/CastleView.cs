@@ -20,14 +20,32 @@ namespace Champ.Unity
         const float CameraHeight = 30f;
         const float SurfaceStep = 0.02f;
         const float TorchHeight = 1.6f;
-        // Tints both the torch lights and the ambient floor, so unlit ground reads as the same
-        // firelight everything else is bathed in, only fainter.
+        // Tints the torch lights, the hero's own light and the ambient floor, so unlit ground
+        // reads as the same firelight everything else is bathed in, only fainter.
         static readonly Color TorchColor = new Color(1f, 0.63f, 0.31f);
+
+        // The hero carries his own light: a torch's colour, far broader and far flatter. Range is
+        // the only knob for the shape of it -- built-in point lights attenuate as
+        // 1/(1 + 25(d/range)^2), a function of the ratio alone, so a longer range does not merely
+        // push the edge out, it slows the whole falloff. At 10x a torch he keeps roughly two thirds
+        // of his light ten units out and a third at twenty, where 5x left 0.46 and 0.15. Past about
+        // 15x the curve is flat enough across the view that it stops reading as a pool travelling
+        // with him and starts reading as the world simply being brighter.
+        //
+        // It costs nothing at his feet: attenuation is 1 at the light itself whatever the range, so
+        // the sum there stays 1.75 with the ambient floor. That headroom is the point -- gamma space
+        // clips the sum of the lights at white and the brightest ground clips past about 2.1, and a
+        // hero bright enough to saturate the ground he stands on would leave a torch beside him
+        // nothing to add, making "next to a torch" look identical to "alone".
+        const float HeroLightRange = CastleWorld.TorchRange * 10f;   // 70
+        const float HeroLightIntensity = 1.4f;                        // a torch is 1.5
+        const float HeroLightHeight = 1.2f;                           // about his own height
 
         CastleWorld _world;
         CameraFollow _follow;
         Camera _camera;
         Transform _hero;
+        Transform _heroLight;
         Material _blockMaterial;
         Texture2D[] _surfaceTextures;
         Sprite _flameSprite;
@@ -76,12 +94,14 @@ namespace Champ.Unity
 
             // Built-in forward rendering lights each object with only pixelLightCount per-pixel
             // lights (4 by default), and the grass is a single object -- without this most torch
-            // pools would never show.
+            // pools would never show. The + 1 is the hero's own light, which would otherwise drop
+            // out of the ground wherever enough torches were already in range of it.
             QualitySettings.pixelLightCount = Mathf.Max(QualitySettings.pixelLightCount, _world.Torches.Count + 1);
             for (var i = 0; i < _world.Torches.Count; i++)
                 CreateTorch(_world.Torches[i], "Torch " + i);
 
             _hero = CreateHero().transform;
+            _heroLight = CreateHeroLight().transform;
         }
 
         // A torch: a dark post, a bright flame on top, and a warm point light at flame height. The
@@ -133,6 +153,7 @@ namespace Champ.Unity
             // Sim stays 2D (X, Y); the view maps sim Y onto world Z, sim X onto world X,
             // and reserves world Y for height so a top-down camera can see 3D depth/shadows.
             _hero.position = new Vector3(_world.Hero.X, FloorHeight + 0.01f, _world.Hero.Y);
+            _heroLight.position = new Vector3(_world.Hero.X, HeroLightHeight, _world.Hero.Y);
 
             // orthographicSize is the HALF height, so the visible height is twice it.
             var viewHeight = _camera.orthographicSize * 2f;
@@ -235,9 +256,29 @@ namespace Champ.Unity
                 new Vector2(0.5f, 0.5f),
                 HeroPixels.Width / size);
             // The hero sits outside the lighting: the default sprite material is unlit, so no
-            // light or shadow changes his colour, and he casts no shadow of his own.
+            // light or shadow changes his colour, and he casts no shadow of his own -- which is
+            // also what stops his own light throwing a streak of him across the ground.
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
+            return go;
+        }
+
+        // A sibling of the hero rather than a child of him: his GameObject is rotated flat to face
+        // the camera, and a child's offset is expressed in that rotated space, so lifting the light
+        // to head height would push it out along world Z instead of up. Parented to the unrotated
+        // root, it is placed each frame in Update, as the hero already is.
+        GameObject CreateHeroLight()
+        {
+            var go = new GameObject("Hero light");
+            go.transform.SetParent(transform, false);
+            var light = go.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.range = HeroLightRange;
+            light.color = TorchColor;
+            light.intensity = HeroLightIntensity;
+            // Shadows, as the torches have: it is what stops him lighting the next room through a
+            // wall. His is the one shadow map that genuinely redraws, since he moves.
+            light.shadows = LightShadows.Hard;
             return go;
         }
 
